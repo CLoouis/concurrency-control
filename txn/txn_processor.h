@@ -84,6 +84,9 @@ class TxnProcessor {
   // MVCC version of scheduler.
   void RunMVCCScheduler();
 
+  void MVCCExecuteTxn(); 
+
+  
   // Performs all reads required to execute the transaction, then executes the
   // transaction logic.
   void ExecuteTxn(Txn* txn);

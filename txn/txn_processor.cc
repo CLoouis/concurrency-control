@@ -290,11 +290,38 @@ void TxnProcessor::RunMVCCScheduler() {
   //
   // Implement this method!
   
+  // while (tp_.Active()) {
+  //   Txn *txn;
+  //   MVCCStorage str;
+  //   str.InitStorage();
+  //   if (txn_requests_.Pop(&txn)) {
+
+  //     tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
+  //                 this,
+  //                 &TxnProcessor::ExecuteTxn,
+  //                 txn));
+      
+      
+  //     set <Key> :: iterator it;
+  //     for(it = txn->writeset_.begin() ; it!= txn->writeset_.end() ; ++it){
+  //       (*lm_).WriteLock(txn,(*it));
+  //       if(str.CheckWrite(*it, txn->unique_id_)){
+  //         str.Write(*it, , )
+  //       }
+
+  //     }
+  //   }
+  // }
+
   // Hint:Pop a txn from txn_requests_, and pass it to a thread to execute. 
   // Note that you may need to create another execute method, like TxnProcessor::MVCCExecuteTxn. 
   //
   // [For now, run serial scheduler in order to make it through the test
   // suite]
-  RunSerialScheduler();
+
+  // RunSerialScheduler();
 }
 
+// void TxnProcessor::MVCCExecuteTxn(){
+//   std::cout<<"a";
+// }
