@@ -265,10 +265,79 @@ void TxnProcessor::RunOCCScheduler() {
   //
   // Implement this method!
   //
+  while (tp_.Active()) {
+    Txn *next;
+    // Get the next new transaction request (if one is pending) and pass it to an execution thread.
+    if(txn_requests_.Pop(&next)){
+      // Deal with all transactions that have finished running (see below).
+      // }
+      // In the execution thread (we are providing you this code):
+      
+      // Record start time
+      //   Perform "read phase" of transaction:
+      //      Read all relevant data from storage
+      //      Execute the transaction logic (i.e. call Run() on the transaction)
+      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(this,&TxnProcessor::ExecuteTxn,next));
+    }
+    // Dealing with a finished transaction (you must write this code):
+    Txn *transaksiSelesai;
+    while(completed_txns_.Pop(&transaksiSelesai)){
+      if (transaksiSelesai->Status() == COMPLETED_A) {
+        transaksiSelesai->status_ = ABORTED;
+      }else{
+      // Validation phase:
+      bool valid = true;
+      // for (each record whose key appears in the txn's read and write sets) {
+          std::set<Key>::iterator it;
+          for (it = transaksiSelesai->writeset_.begin(); it != transaksiSelesai->writeset_.end(); ++it)
+          {
+            //if (the record was last updated AFTER this transaction's start time) {
+            if(transaksiSelesai->occ_start_time_ < storage_->Timestamp(*it)){
+            //Validation fails!
+              valid = false;
+            }
+          }
+          for (it = transaksiSelesai->readset_.begin(); it != transaksiSelesai->readset_.end(); ++it)
+          {
+            //if (the record was last updated AFTER this transaction's start time) {
+            if(transaksiSelesai->occ_start_time_ < storage_->Timestamp(*it)){
+            //Validation fails!
+              valid = false;
+            }
+          }
+      //   }
+      // }
+
+      // Commit/restart
+      // if (validation failed) {
+      if (!valid){
+        // Cleanup txn
+        // Completely restart the transaction.
+
+        // Cleanup txn:
+        transaksiSelesai->reads_.empty();
+        transaksiSelesai->writes_.empty();
+        transaksiSelesai->status_ = INCOMPLETE;
+
+        // Restart txn:
+        mutex_.Lock();
+        next->unique_id_ = next_unique_id_;
+        next_unique_id_++;
+        txn_requests_.Push(transaksiSelesai);
+        mutex_.Unlock();
+      }else{
+        // Apply all writes
+        ApplyWrites(transaksiSelesai);
+        // Mark transaction as committed
+        next->status_ = COMMITTED;
+      }       
+      txn_results_.Push(transaksiSelesai);
+    }
+  }
   // [For now, run serial scheduler in order to make it through the test
   // suite]
-
-  RunSerialScheduler();
+  }
+  // RunSerialScheduler();
 }
 
 void TxnProcessor::RunOCCParallelScheduler() {
