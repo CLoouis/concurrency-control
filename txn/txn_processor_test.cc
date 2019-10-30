@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
   int ret = sched_setaffinity(0, sizeof(cs), &cs);
   if (ret) {
     perror("sched_setaffinity");
-    assert(false);
+    // assert(false);
   }
 
   vector<LoadGen*> lg;

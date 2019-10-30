@@ -6,6 +6,13 @@
 
 #include "txn/lock_manager.h"
 
+// LockManager::~LockManager() {
+//   // Cleanup lock_table_
+//   for (auto it = lock_table_.begin(); it != lock_table_.end(); it++) {
+//     delete it->second;
+//   }
+// }
+
 LockManagerA::LockManagerA(deque<Txn*>* ready_txns) {
   ready_txns_ = ready_txns;
 }
@@ -37,22 +44,31 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
   // CPSC 438/538:
   //
   // Implement this method!
+  Txn* TxnLockPertamaSebelumHapus;
   if(!lock_table_[key]){
     lock_table_[key] = new deque<LockRequest>();
   }
 
-  for (std::deque<LockRequest>::iterator it = lock_table_[key]->begin(); it != lock_table_[key]->end(); it++){
+  if(lock_table_[key]->size() != 0){
+    TxnLockPertamaSebelumHapus = lock_table_[key]->front().txn_;
+  }
+
+  std::deque<LockRequest>::iterator it;
+  for (it = lock_table_[key]->begin(); it != lock_table_[key]->end();++it){
     if (it->txn_ == txn){
       lock_table_[key]->erase(it);
-      if (lock_table_[key]->size() != 0){
-        Txn* requestBerikutnya = lock_table_[key]->front().txn_;
-        if (txn_waits_[requestBerikutnya] == 1){
-          ready_txns_->push_back(requestBerikutnya);
-          txn_waits_.erase(requestBerikutnya);
-        }
-      }
-    } else {
-      //karena txn ga ngapa-ngapain di key do nothing
+      break;
+    }
+  }
+
+  bool isPertamaTerhapus = (TxnLockPertamaSebelumHapus != lock_table_[key]->front().txn_);
+
+  if (lock_table_[key]->size() != 0 && isPertamaTerhapus){
+    Txn* requestBerikutnya = lock_table_[key]->front().txn_;
+    if (txn_waits_[requestBerikutnya] == 1){
+      txn_waits_[requestBerikutnya] -= 1;
+      ready_txns_->push_back(requestBerikutnya);
+      txn_waits_.erase(requestBerikutnya);
     }
   }
 }

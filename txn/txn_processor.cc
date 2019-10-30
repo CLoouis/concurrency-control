@@ -388,7 +388,7 @@ void TxnProcessor::RunMVCCScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
-  // RunSerialScheduler();
+  RunSerialScheduler();
 }
 
 // void TxnProcessor::MVCCExecuteTxn(){
