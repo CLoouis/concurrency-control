@@ -441,16 +441,16 @@ void TxnProcessor::MVCCExecuteTxn(Txn* txn){
   // Read the data from read_set_keys
 
   set<Key>::iterator it;
-  Value* value;
+  Value value;
   for (it = txn->readset_.begin(); it!= txn->readset_.end(); it++){
 
     // Lock
     storage_->Lock(*it);
 
     // Read
-    if(storage_->Read(*it, value,txn->unique_id_){
+    if(storage_->Read(*it, &value,txn->unique_id_)){
       // if successful
-      txn->reads_[*it] = *value;
+      txn->reads_[*it] = value;
 
     }
 
