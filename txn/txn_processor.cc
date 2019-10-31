@@ -115,109 +115,97 @@ void TxnProcessor::RunSerialScheduler() {
 }
 
 void TxnProcessor::RunLockingScheduler() {
-  Txn* txn;
-  while (tp_.Active()) {
-    // Start processing the next incoming transaction request.
-    if (txn_requests_.Pop(&txn)) {
-      bool blocked = false;
-      // Request read locks.
-      for (set<Key>::iterator it = txn->readset_.begin();
-           it != txn->readset_.end(); ++it) {
-        if (!lm_->ReadLock(txn, *it)) {
-          blocked = true;
-          // If readset_.size() + writeset_.size() > 1, and blocked, just abort
-          if (txn->readset_.size() + txn->writeset_.size() > 1) {
-            // Release all locks that already acquired
-            for (set<Key>::iterator it_reads = txn->readset_.begin(); true; ++it_reads) {
-              lm_->Release(txn, *it_reads);
-              if (it_reads == it) {
-                break;
+  // selama tp active ambil satu txn
+  // baca readset nya, kalau read lakukan read kalau write lakukan write
+  // kalau ga granted, jalankan ulang txn
+  // kalau semua granted masukin ready_txn
+  // cek completed txn, kalau completed_c apply write terus status = commit
+  // kalau completed_a status = aborted
+  // release semua key yang dipegang
+  // masuk ke txn_result
+  // terus txn - txn berikutnya dijalanin (?)
+  Txn* transaction;
+  set<Key> readLockTelahDidapat;
+  set<Key> writeLockTelahDidapat;
+
+  while(tp_.Active()){
+    if(txn_requests_.Pop(&transaction)){
+      bool isGranted = true;
+      
+      readLockTelahDidapat.clear();
+      writeLockTelahDidapat.clear();
+
+      for(Key key : transaction->readset_){
+        if(!lm_->ReadLock(transaction, key)){
+          isGranted = false;
+          readLockTelahDidapat.insert(key);
+          if(transaction->readset_.size() + transaction->writeset_.size() > 1){
+            for(Key key : readLockTelahDidapat){
+              lm_->Release(transaction, key);
+            }
+          }
+          break;
+        }
+        readLockTelahDidapat.insert(key);
+      }
+
+      if (isGranted){
+        for (Key key : transaction->writeset_){
+          if(!lm_->WriteLock(transaction, key)){
+            isGranted = false;
+            writeLockTelahDidapat.insert(key);
+            if(transaction->readset_.size() + transaction->writeset_.size() > 1){
+              for(Key key : readLockTelahDidapat){
+                lm_->Release(transaction, key);
+              }
+
+              for(Key key : writeLockTelahDidapat){
+                lm_->Release(transaction, key);
               }
             }
             break;
           }
-        }
-      }
-          
-      if (blocked == false) {
-        // Request write locks.
-        for (set<Key>::iterator it = txn->writeset_.begin();
-             it != txn->writeset_.end(); ++it) {
-          if (!lm_->WriteLock(txn, *it)) {
-            blocked = true;
-            // If readset_.size() + writeset_.size() > 1, and blocked, just abort
-            if (txn->readset_.size() + txn->writeset_.size() > 1) {
-              // Release all read locks that already acquired
-              for (set<Key>::iterator it_reads = txn->readset_.begin(); it_reads != txn->readset_.end(); ++it_reads) {
-                lm_->Release(txn, *it_reads);
-              }
-              // Release all write locks that already acquired
-              for (set<Key>::iterator it_writes = txn->writeset_.begin(); true; ++it_writes) {
-                lm_->Release(txn, *it_writes);
-                if (it_writes == it) {
-                  break;
-                }
-              }
-              break;
-            }
-          }
+          writeLockTelahDidapat.insert(key);
         }
       }
 
-      // If all read and write locks were immediately acquired, this txn is
-      // ready to be executed. Else, just restart the txn
-      if (blocked == false) {
-        ready_txns_.push_back(txn);
-      } else if (blocked == true && (txn->writeset_.size() + txn->readset_.size() > 1)){
-        mutex_.Lock();
-        txn->unique_id_ = next_unique_id_;
+      if(isGranted == true){
+        ready_txns_.push_back(transaction);
+      } else if (isGranted == false && (transaction->writeset_.size() + transaction->readset_.size() > 1)) {
+        transaction->unique_id_ = next_unique_id_;
         next_unique_id_++;
-        txn_requests_.Push(txn);
-        mutex_.Unlock(); 
+        txn_requests_.Push(transaction);
       }
     }
 
-    // Process and commit all transactions that have finished running.
-    while (completed_txns_.Pop(&txn)) {
-      // Commit/abort txn according to program logic's commit/abort decision.
-      if (txn->Status() == COMPLETED_C) {
-        ApplyWrites(txn);
-        txn->status_ = COMMITTED;
-      } else if (txn->Status() == COMPLETED_A) {
-        txn->status_ = ABORTED;
+    while (completed_txns_.Pop(&transaction)){
+      if(transaction->Status() == COMPLETED_C){
+        ApplyWrites(transaction);
+        transaction->status_ = COMMITTED;
+      } else if (transaction->Status() == COMPLETED_A){
+        transaction->status_ = ABORTED;
       } else {
-        // Invalid TxnStatus!
-        DIE("Completed Txn has invalid TxnStatus: " << txn->Status());
-      }
-      
-      // Release read locks.
-      for (set<Key>::iterator it = txn->readset_.begin();
-           it != txn->readset_.end(); ++it) {
-        lm_->Release(txn, *it);
-      }
-      // Release write locks.
-      for (set<Key>::iterator it = txn->writeset_.begin();
-           it != txn->writeset_.end(); ++it) {
-        lm_->Release(txn, *it);
+        DIE("ERROR");
       }
 
-      // Return result to client.
-      txn_results_.Push(txn);
+      for(Key key : transaction->readset_){
+        lm_->Release(transaction, key);
+      }
+
+      for(Key key : transaction->writeset_){
+        lm_->Release(transaction, key);
+      }
+
+      txn_results_.Push(transaction);
     }
 
-    // Start executing all transactions that have newly acquired all their
-    // locks.
-    while (ready_txns_.size()) {
-      // Get next ready txn from the queue.
-      txn = ready_txns_.front();
+    while(ready_txns_.size()){
+      transaction = ready_txns_.front();
       ready_txns_.pop_front();
-
-      // Start txn running in its own thread.
       tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
             this,
             &TxnProcessor::ExecuteTxn,
-            txn));
-
+            transaction));
     }
   }
 }
