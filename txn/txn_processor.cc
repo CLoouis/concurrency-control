@@ -379,163 +379,140 @@ void TxnProcessor::RunMVCCScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
-  RunSerialScheduler();
+  //RunSerialScheduler();
 
-  // // Code according to pseudocode
-  // Txn* txn;
-  // while (tp_.Active()) {
-  //   // Get next txn request.
+  // Code according to pseudocode
+  Txn* txn;
+  while (tp_.Active()) {
 
-  //   if (txn_requests_.Pop(&txn)) {
+    // Get next txn request.
+
+    if (txn_requests_.Pop(&txn)) {
       
-  //     //Read all necessary data for this transaction from storage (Note that you should lock the key before each read)
-    
-  //     //Execute the transaction logic (i.e. call Run() on the transaction)
-    
-  //     // Acquire all locks for keys in the write_set_
-    
-  //     // Call MVCCStorage::CheckWrite method to check all keys in the write_set_
-  //     // If (each key passed the check)
-  //       //Apply the writes
-  //       // Release all locks for keys in the write_set_
-  //     // else if (at least one key failed the check)
-  //       // Release all locks for keys in the write_set_
-  //       // Cleanup txn
-  //       // Completely restart the transaction.
-
-  //     // Commit/abort txn according to program logic's commit/abort decision.
-  //     if (txn->Status() == COMPLETED_C) {
-  //       ApplyWrites(txn);
-  //       txn->status_ = COMMITTED;
-  //     } else if (txn->Status() == COMPLETED_A) {
-  //       txn->status_ = ABORTED;
-  //     } else {
-  //       // Invalid TxnStatus!
-  //       DIE("Completed Txn has invalid TxnStatus: " << txn->Status());
-  //     }
-
-  //     // Return result to client.
-  //     txn_results_.Push(txn);
-  //   }
-  // }
+      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
+        this,
+        &TxnProcessor::MVCCExecuteTxn,
+        txn));
+    }
+  }
 }
 
 
 
-// void TxnProcessor::MVCCExecuteTxn(Txn* txn){
+void TxnProcessor::MVCCExecuteTxn(Txn* txn){
   
-//   // This is the function for the thread running the transaction
+  // This is the function for the thread running the transaction
   
-//   // First, read all necessary data for this transaction
-//   // Read the data from read_set_keys
+  // First, read all necessary data for this transaction
+  // Read the data from read_set_keys
 
-//   set<Key>::iterator it;
-//   Value value;
-//   for (it = txn->readset_.begin(); it!= txn->readset_.end(); it++){
+  set<Key>::iterator it;
+  Value value;
+  for (it = txn->readset_.begin(); it!= txn->readset_.end(); it++){
 
-//     // Lock
-//     storage_->Lock(*it);
+    // Lock
+    storage_->Lock(*it);
 
-//     // Read
-//     if(storage_->Read(*it, &value,txn->unique_id_)){
-//       // if successful
-//       txn->reads_[*it] = value;
+    // Read
+    if(storage_->Read(*it, &value,txn->unique_id_)){
+      // if successful
+      txn->reads_[*it] = value;
 
-//     }
+    }
 
-//     // Release the lock
-//     storage_->Unlock(*it);
-//   }
+    // Release the lock
+    storage_->Unlock(*it);
+  }
 
-//   // Execute the transaction logic (i.e. call Run() on the transaction)
-//   txn->Run();
+  // Execute the transaction logic (i.e. call Run() on the transaction)
+  txn->Run();
     
-//   // Acquire all locks for keys in the write_set_
-//   for (it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
-//     storage_->Lock(*it);
+  // Acquire all locks for keys in the write_set_
+  for (it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
+    storage_->Lock(*it);
 
-//   }
+  }
 
-//   //Call MVCCStorage::CheckWrite method to check all keys in the write_set_
-//   if(MVCCCheckWrites(txn)){
+  //Call MVCCStorage::CheckWrite method to check all keys in the write_set_
+  if(MVCCCheckWrites(txn)){
 
-//     // Apply the writes
-//     ApplyWrites(txn);
-//     // Release locks in writeset
-//     for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
-//       storage_->Unlock(*it);
-//     }
+    // Apply the writes
+    ApplyWrites(txn);
+    // Release locks in writeset
+    for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
+      storage_->Unlock(*it);
+    }
 
-//     // Commit
-//     txn->status_ = COMMITTED;
+    // Commit
+    txn->status_ = COMMITTED;
 
-//     // Return ownership to processor thread
-//     txn_results_.Push(txn);
+    // Return ownership to processor thread
+    txn_results_.Push(txn);
 
 
-//   } else {
+  } else {
 
-//     // A fail occured !
-//     for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
-//       storage_->Unlock(*it);
-//     }
+    // A fail occured !
+    for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
+      storage_->Unlock(*it);
+    }
 
-//     // Cleanup
-//     txn->reads_.empty();
-//     txn->writes_.empty();
-//     txn->status_ = INCOMPLETE;
+    // Cleanup
+    txn->reads_.empty();
+    txn->writes_.empty();
+    txn->status_ = INCOMPLETE;
 
-//     // Restart
-//     mutex_.Lock();
-//     txn->unique_id_ = next_unique_id_;
-//     next_unique_id_++;
-//     txn_requests_.Push(txn);
-//     mutex_.Unlock(); 
+    // Restart
+    mutex_.Lock();
+    txn->unique_id_ = next_unique_id_;
+    next_unique_id_++;
+    txn_requests_.Push(txn);
+    mutex_.Unlock(); 
 
-//   }
-// }
+  }
+}
   
-// bool TxnProcessor::MVCCCheckWrites(Txn* txn){
+bool TxnProcessor::MVCCCheckWrites(Txn* txn){
 
-//   // Check if all write can be done with the transaction
-//   // Check from txn's write_set, iterate
-//   set<Key>::iterator it;
+  // Check if all write can be done with the transaction
+  // Check from txn's write_set, iterate
+  set<Key>::iterator it;
 
-//   // iterate
-//   for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
-//     if(!storage_->CheckWrite(*it,txn->unique_id_)){
+  // iterate
+  for(it = txn->writeset_.begin(); it!= txn->writeset_.end(); it++){
+    if(!storage_->CheckWrite(*it,txn->unique_id_)){
 
-//       // Write cannot be done
-//       // immediately return false
-//       return false;
+      // Write cannot be done
+      // immediately return false
+      return false;
 
-//     }
-//   }
+    }
+  }
 
-//   // All has been checked
-//   // Write can be done, hooray !
-//   return true;
-// }
+  // All has been checked
+  // Write can be done, hooray !
+  return true;
+}
 
-// void TxnProcessor::MVCCLockWriteKeys(Txn* txn){
+void TxnProcessor::MVCCLockWriteKeys(Txn* txn){
 
-//   // Assume that write can be done (e.g. validated)
-//   // Lock all keys in txn's writeset
-//   set<Key>::iterator it;
+  // Assume that write can be done (e.g. validated)
+  // Lock all keys in txn's writeset
+  set<Key>::iterator it;
   
-//   //iterate
-//   for(it = txn->writeset_.begin(); it != txn->writeset_.end(); it++){
-//     storage_->Lock(*it);
-//   }
+  //iterate
+  for(it = txn->writeset_.begin(); it != txn->writeset_.end(); it++){
+    storage_->Lock(*it);
+  }
 
-// }
+}
 
-// void TxnProcessor::MVCCUnlockWriteKeys(Txn* txn){
+void TxnProcessor::MVCCUnlockWriteKeys(Txn* txn){
 
-//   // Release all mutex locks on txn's writeset keys
-//   set<Key>::iterator it;
-//   for(it = txn->writeset_.begin(); it != txn->writeset_.end(); it++){
-//     storage_->Unlock(*it);
-//   }
-// }
+  // Release all mutex locks on txn's writeset keys
+  set<Key>::iterator it;
+  for(it = txn->writeset_.begin(); it != txn->writeset_.end(); it++){
+    storage_->Unlock(*it);
+  }
+}
 
